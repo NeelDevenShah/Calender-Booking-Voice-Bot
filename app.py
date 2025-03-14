@@ -97,11 +97,11 @@ def check_availability(start_time, end_time):
     return True, "Time slot is available"
 
 # Delete event from Google Calendar
-def delete_event(event_id):
+def delete_event(id):
     service = get_calendar_service()
     
     try:
-        service.events().delete(calendarId='primary', eventId=event_id).execute()
+        service.events().delete(calendarId='primary', eventId=id).execute()
         return True, "Event deleted successfully"
     except Exception as e:
         return False, f"Error deleting event: {str(e)}"
@@ -196,8 +196,8 @@ def get_available_slots():
 def delete_event_route():
     data = request.json
     try:
-        event_id = data['event_id']
-        success, message = delete_event(event_id)
+        id = data['id']
+        success, message = delete_event(id)
         if success:
             return jsonify({"success": True, "message": message})
         else:
@@ -233,10 +233,10 @@ def get_events_by_date():
         ).execute()
         
         events = events_result.get('items', [])
-        
         # Format events for the response
         events_list = []
         for event in events:
+            print(event.keys())
             events_list.append({
                 "id": event['id'],
                 "start_time": event['start'].get('dateTime', event['start'].get('date')),
@@ -314,7 +314,7 @@ def get_events_by_datetime():
 def update_event():
     data = request.json
     try:
-        event_id = data['event_id']
+        id = data['id']
         new_start_time = datetime.datetime.fromisoformat(data['new_start_time'])
         new_end_time = new_start_time + datetime.timedelta(minutes=int(data['duration']))
         
@@ -331,7 +331,7 @@ def update_event():
         service = get_calendar_service()
 
         # Get the current event details
-        event = service.events().get(calendarId='primary', eventId=event_id).execute()
+        event = service.events().get(calendarId='primary', eventId=id).execute()
 
         # Check if the new time slot is available before updating
         is_available, reason = check_availability(new_start_time, new_end_time)
@@ -352,12 +352,12 @@ def update_event():
             event['description'] = data['description']
             event['summary'] = data['description']
 
-        updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
+        updated_event = service.events().update(calendarId='primary', eventId=id, body=event).execute()
 
         return jsonify({
             "success": True,
             "message": "Event updated successfully",
-            "event_id": updated_event['id']
+            "id": updated_event['id']
         })
 
     except Exception as e:
@@ -398,9 +398,10 @@ def quick_add_event():
         return jsonify({
             "success": True,
             "message": "Event created successfully",
-            "event_id": created_event['id'],
+            "id": created_event['id'],
             "event_details": {
                 "summary": created_event.get('summary', 'No title'),
+                "id": created_event['id'],
                 "start": created_event['start'].get('dateTime', created_event['start'].get('date')),
                 "end": created_event['end'].get('dateTime', created_event['end'].get('date'))
             }

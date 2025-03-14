@@ -286,12 +286,11 @@ def update_event_tool(old_date_time: str, new_date_time: str, duration: str, des
         return {"success": False, "error": f"Failed to update event: {str(e)}"}
 
 @tool('delete_event_tool')
-def delete_event_tool(date_time: str, duration: str) -> Dict:
+def delete_event_tool(id: str) -> Dict:
     """Delete a calendar event."""
     try:
         event_data = {
-            "start_time": date_time,
-            "duration": duration
+            "id": id
         }
         response = requests.delete(f"{API_BASE_URL}/delete", json=event_data)
         response_data = response.json()
@@ -313,7 +312,8 @@ calendar_agent = Agent(
         "slots": [
             {
             "start": "ISO 8601 datetime format",
-            "end": "ISO 8601 datetime format"
+            "end": "ISO 8601 datetime format",
+            "id": "given id here"
             }
         ]
         }
@@ -346,15 +346,9 @@ def create_calendar_task(user_input):
             agent=calendar_agent,
             context=[{
                 "description": "User initiated a casual conversation.",
-                "expected_output": """Make sure that the output should be in format: {
+                "expected_output": """Make sure that the output should be in format only: {
                     "message": "Generalized response message",
                     "success": true,
-                    "slots": [
-                        {
-                        "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
-                        }
-                    ]
                     }""",
                 "conversation_type": "casual",
                 "response": response,  # Keeping the response data
@@ -379,7 +373,8 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": "given id here"
                         }
                     ]
                     }""",
@@ -413,7 +408,8 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": "given id here"
                         }
                     ]
                     }""",
@@ -458,7 +454,9 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": given id here,
+                        
                         }
                     ]
                     }""",
@@ -481,7 +479,8 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": "given id here"
                         }
                     ]
                     }""",
@@ -531,7 +530,8 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": given id here,
                         }
                     ]
                     }""",
@@ -558,7 +558,8 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": given id here,
                         }
                     ]
                     }""",
@@ -583,7 +584,8 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": given id here,
                         }
                     ]
                     }""",
@@ -610,7 +612,8 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format"
+                        "end": "ISO 8601 datetime format",
+                        "id": given id here,
                         }
                     ]
                     }""",
@@ -777,13 +780,15 @@ def handle_voice():
     
     # Convert the response to speech using Eleven Labs
     print('Audio Conversion Started')
-    audio = client.text_to_speech.convert(
-    text=response['message'],
-    voice_id="JBFqnCBsd6RMkjVDRZzb",
-    model_id="eleven_multilingual_v2",
-    output_format="mp3_44100_128",
-    )
+    audio = ''
+    # audio = client.text_to_speech.convert(
+    # text=response['message'],
+    # voice_id="JBFqnCBsd6RMkjVDRZzb",
+    # model_id="eleven_multilingual_v2",
+    # output_format="mp3_44100_128",
+    # )
     # Convert the generator into a byte stream
+    
     audio_data = b''.join(audio)
 
     print('Audio processing completed')
@@ -794,68 +799,9 @@ def handle_voice():
         mimetype="audio/mpeg",
         headers={
             "Content-Disposition": "inline; filename=audio.mp3",
-            "X-Response": response['message']
+            "X-Response": response
         }
     )
-
-# # New route for handling voice input
-# @app.route('/api/voice', methods=['POST'])
-# def handle_voice():
-#     """API endpoint to handle voice input"""
-#     print(request.files)
-    
-#     if 'file' not in request.files:
-#         return jsonify({
-#             "success": False,
-#             "message": "No file provided"
-#         }), 400
-#     audio_file = request.files['file']
-    
-#     print("Transcribtion started")
-    
-#     transcript = transcriber.transcribe(audio_file)
-#     print("Transcribtion completed")
-    
-    
-#     if transcript.status == aai.TranscriptStatus.error:
-#         return jsonify({
-#             "success": False,
-#             "message": "Failed to transcribe audio"
-#         }), 500
-    
-#     user_message = transcript.text
-    
-#     # Process the transcribed text
-#     response = process_user_message(user_message)
-#     print(type(response['message']), response['message'])
-
-#     if ('error' in response['message']) or ('error' in response['message']):
-#         print("@ Found An Error @")
-#         response['message'] = "I'm sorry, I didn't understand your request. Could you please provide more details?"
-    
-#     # Convert the response to speech using Eleven Labs
-#     print('Audio Conversion Started')
-#     audio = client.text_to_speech.convert(
-#     text=response['message'],
-#     voice_id="JBFqnCBsd6RMkjVDRZzb",
-#     model_id="eleven_multilingual_v2",
-#     output_format="mp3_44100_128",
-#     )
-#     # Convert the generator into a byte stream
-#     audio_data = b''.join(audio)
-
-#     print('Audio processing completed')
-
-#     # Return both audio data and text message
-#     return Response(
-#         audio_data,
-#         mimetype="audio/mpeg",
-#         headers={
-#             "Content-Disposition": "inline; filename=audio.mp3",
-#             "X-Transcript": user_message,
-#             "X-Response": response['message']
-#         }
-#     )
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5001, debug=True)
