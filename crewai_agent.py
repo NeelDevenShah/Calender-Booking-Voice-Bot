@@ -37,6 +37,9 @@ llm = LLM(model="gemini/gemini-2.0-flash")
 
 # Set API keys for Eleven Labs and AssemblyAI
 aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY')
+# Transcribe the audio file using AssemblyAI
+transcriber = aai.Transcriber()
+
 
 # Initialize ElevenLabs client
 client = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
@@ -194,13 +197,11 @@ def find_referenced_event() -> Dict:
     return {}
 
 @tool('create_event_tool')
-def create_event_tool(date_time: str, duration: str, description: str) -> Dict:
+def create_event_tool(description: str) -> Dict:
     """Create a calendar event."""
     try:
-        # Extract specific details from event_details
+        
         event_data = {
-            "start_time": date_time,
-            "duration": duration,
             "description": description
         }
         response = requests.post(f"{API_BASE_URL}/add", json=event_data)
@@ -438,12 +439,18 @@ def create_calendar_task(user_input):
     date_time = format_date_iso(date_time)
     
     if intent == "create_event":
+        print({
+                    "date_time": date_time,
+                    "duration": duration,
+                    "description": description
+                })
+        print('%%%%%%%%%%%%%%%%%%%%%')
         task = Task(
-            description=f"Create an event: {description} on {date_time} for {duration} minutes",
+            description=f"Create an event as described in the : {user_input}",
             expected_output="Confirmation of event creation, and if the message like `Event cannot cross day boundaries` or the `Start time must be after` or `Start time must be before` is comming then make sure pass that message to the user, and ask for conformation instead of changing the time given by user.",
             agent=calendar_agent,
             context=[{
-                "description": f"Create a calendar event for {description}",
+                "description": description,
                 "expected_output": """Make sure that the output should be in format: {
                     "message": "Generalized response message",
                     "success": true,
@@ -455,11 +462,6 @@ def create_calendar_task(user_input):
                     ]
                     }""",
                 "intent": "create_event",
-                "event_details": {
-                    "date_time": date_time,
-                    "duration": duration,
-                    "description": description
-                },
                 "required_tool": "create_event_tool",
                 "conversation_history": get_conversation_context(),
                 "current_date": current_date.strftime("%Y-%m-%d")
@@ -640,6 +642,9 @@ def process_user_message(user_input: str) -> Dict[str, Any]:
     try:
         # Create task based on user input
         print(f'user: {user_input}')
+        
+        user_input += f" And today's date is : {datetime.now().strftime('%Y-%m-%d')}"
+        
         task = create_calendar_task(user_input)
         
         # Create and execute crew
@@ -722,17 +727,19 @@ def clear_history():
 def handle_voice():
     """API endpoint to handle voice input"""
     print(request.files)
+    
     if 'file' not in request.files:
         return jsonify({
             "success": False,
             "message": "No file provided"
         }), 400
-    
     audio_file = request.files['file']
     
-    # Transcribe the audio file using AssemblyAI
-    transcriber = aai.Transcriber()
+    print("Transcribtion started")
+    
     transcript = transcriber.transcribe(audio_file)
+    print("Transcribtion completed")
+    
     
     if transcript.status == aai.TranscriptStatus.error:
         return jsonify({
@@ -742,22 +749,35 @@ def handle_voice():
     
     user_message = transcript.text
     
+    # try:
+    #     response = json.loads(response)
+    # except:
+    #     pass
+    
     # Process the transcribed text
     response = process_user_message(user_message)
+    print(type(response['message']), response['message'])
+
+    if ('error' in response['message']) or ('error' in response['message']):
+        print("@ Found An Error @")
+        response['message'] = "I'm sorry, I didn't understand your request. Could you please provide more details?"
     
-    # Convert the response to speech using Eleven Labs       
+    # Convert the response to speech using Eleven Labs
+    print('Audio Conversion Started')
     audio = client.text_to_speech.convert(
     text=response['message'],
     voice_id="JBFqnCBsd6RMkjVDRZzb",
     model_id="eleven_multilingual_v2",
     output_format="mp3_44100_128",
     )
-
+    print('Audio Conversion completed')
     
     # Save the audio to a temporary file
     with open("tmp.mp3", "wb") as f:
         for chunk in audio:  # Iterate over the generator
             f.write(chunk)
+            
+    print('Video saved compleyted')
     
     return jsonify({
         "success": True,

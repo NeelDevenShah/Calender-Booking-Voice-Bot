@@ -366,6 +366,7 @@ def update_event():
 @app.route('/add', methods=['POST'])
 def quick_add_event():
     """Endpoint to quickly add an event using Google Calendar's quickAdd feature"""
+    print(request.json)
     data = request.json
     try:
         
@@ -382,14 +383,17 @@ def quick_add_event():
             calendarId='primary',
             text=text
         ).execute()
+        print(created_event)
+        print('Event Created Successfully')
         
         start_time = created_event['start']['dateTime']
         end_time = created_event['end']['dateTime']
         
-        within_hours, reason = is_within_working_hours(start_time, end_time)
-        if not within_hours:
-            service.events().delete(calendarId='primary', eventId=created_event['id']).execute()
-            return jsonify({"success": False, "reason": reason})
+        # within_hours, reason = is_within_working_hours(start_time, end_time)
+        # if not within_hours:
+        #     service.events().delete(calendarId='primary', eventId=created_event['id']).execute()
+        #     print('Event deleted as it was not in the working hours')
+        #     return jsonify({"success": False, "reason": 'As the event was not in the working hours'})
         
         return jsonify({
             "success": True,

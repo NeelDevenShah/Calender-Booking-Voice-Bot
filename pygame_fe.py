@@ -14,8 +14,43 @@ SAMPLE_RATE = 44100
 CHANNELS = 1
 dtype = np.int16
 SILENCE_THRESHOLD = 70  # Adjust based on environment
-SILENCE_DURATION = 0.9  # Seconds of silence to stop recording
-MIN_SPEECH_THRESHOLD = 100  # Minimum threshold to consider audio as containing speech
+SILENCE_DURATION = 0.4  # Seconds of silence to stop recording
+MIN_SPEECH_THRESHOLD = 100  # Initial value, will be calibrated
+MIN_AUDIO_DURATION = .15  # Minimum duration in seconds for valid speech
+
+def calibrate_noise_threshold(duration=3):
+    """
+    Calibrates the noise threshold by listening to the background noise.
+    Returns an appropriate threshold for speech detection.
+    """
+    print("Calibrating microphone... Please remain silent for", duration, "seconds.")
+    
+    # Record ambient noise
+    frames = []
+    chunk_size = int(SAMPLE_RATE * 0.1)  # 100ms chunks
+    for _ in range(int(duration / 0.1)):
+        chunk = sd.rec(chunk_size, samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=dtype)
+        sd.wait()
+        frames.append(chunk)
+    
+    # Calculate noise statistics
+    audio_data = np.concatenate(frames, axis=0)
+    mean_noise = np.abs(audio_data).mean()
+    max_noise = np.abs(audio_data).max()
+    std_noise = np.abs(audio_data).std()
+    
+    # Set thresholds based on noise statistics
+    global SILENCE_THRESHOLD, MIN_SPEECH_THRESHOLD
+    SILENCE_THRESHOLD = mean_noise * 1.2  # 20% above mean noise level
+    MIN_SPEECH_THRESHOLD = mean_noise * 2.5  # 2.5x mean noise level
+    
+    print(f"Calibration complete:")
+    print(f"Background noise level: mean={mean_noise:.2f}, max={max_noise:.2f}, std={std_noise:.2f}")
+    print(f"SILENCE_THRESHOLD set to: {SILENCE_THRESHOLD:.2f}")
+    print(f"MIN_SPEECH_THRESHOLD set to: {MIN_SPEECH_THRESHOLD:.2f}")
+    print("\n--- Ready! You can start talking now ---\n")
+    
+    return SILENCE_THRESHOLD, MIN_SPEECH_THRESHOLD
 
 
 def record_audio(filename="input.wav", max_duration=10):
@@ -38,7 +73,7 @@ def record_audio(filename="input.wav", max_duration=10):
             silent_chunks += 1
         else:
             silent_chunks = 0
-
+        print(silent_chunks, SILENCE_DURATION / 0.1)
         if silent_chunks > (SILENCE_DURATION / 0.1):
             break
     
@@ -79,12 +114,15 @@ def send_audio(file_path):
 
 def play_audio(file_path):
     """Plays the audio from the given local file path."""
+    print('Playing the audio')
     pygame.mixer.init()
     pygame.mixer.music.load(file_path)
     pygame.mixer.music.play()
     
     while pygame.mixer.music.get_busy():
         time.sleep(0.1)
+    
+    time.sleep(0.5)
 
 
 def has_sufficient_content(file_path):
@@ -94,7 +132,11 @@ def has_sufficient_content(file_path):
     """
     with wave.open(file_path, 'rb') as wf:
         n_frames = wf.getnframes()
+        framerate = wf.getframerate()
         audio_data = np.frombuffer(wf.readframes(n_frames), dtype=np.int16)
+        
+        # Calculate audio duration in seconds
+        duration = n_frames / framerate
         
         # Calculate percentage of audio above threshold
         above_threshold = np.sum(np.abs(audio_data) > SILENCE_THRESHOLD)
@@ -104,12 +146,26 @@ def has_sufficient_content(file_path):
             return False
             
         percentage_speech = (above_threshold / total_samples) * 100
-        mean_amplitude = np.abs(audio_data).mean()
+        # mean_amplitude = np.abs(audio_data).mean()
         
-        print(f"Speech percentage: {percentage_speech:.2f}%, Mean amplitude: {mean_amplitude:.2f}")
+        # Calculate frames with significant voice activity
+        voice_frames = np.sum(np.abs(audio_data) > MIN_SPEECH_THRESHOLD)
+        voice_duration = voice_frames / framerate
         
-        # Return True if there's enough speech content and mean amplitude is above threshold
-        return percentage_speech > 10 and mean_amplitude > MIN_SPEECH_THRESHOLD
+        # print(f"Speech percentage: {percentage_speech:.2f}%, Mean amplitude: {mean_amplitude:.2f}")
+        print(f"Audio duration: {duration:.2f}s, Voice duration: {voice_duration:.2f}s")
+        
+        # Check for all criteria:
+        # 1. Enough percentage of speech
+        # 2. Sufficient mean amplitude
+        # 3. Minimum duration of voice activity
+        
+        print('%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
+        print(voice_duration, MIN_AUDIO_DURATION)
+        # print(mean_amplitude, MIN_SPEECH_THRESHOLD)
+        print('%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
+        
+        return (percentage_speech > 8 and voice_duration >= MIN_AUDIO_DURATION)
 
 
 def voice_loop():
@@ -129,4 +185,6 @@ def voice_loop():
 
 
 if __name__ == "__main__":
+    # Calibrate microphone once at startup
+    calibrate_noise_threshold()
     voice_loop()
