@@ -761,7 +761,8 @@ def handle_voice():
     
     return jsonify({
         "success": True,
-        "message": response['message']
+        "message": response['message'],
+        "audio_url": "tmp.mp3"
     })
 
 if __name__ == "__main__":
