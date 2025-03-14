@@ -12,6 +12,9 @@ from crewai import Agent, Crew, Task, Process, LLM
 from crewai.tools import tool
 import ast
 from langchain_google_genai import ChatGoogleGenerativeAI
+from elevenlabs import play
+from elevenlabs.client import ElevenLabs
+import assemblyai as aai
 
 # Load environment variables
 load_dotenv()
@@ -31,6 +34,12 @@ llm_2 = ChatGoogleGenerativeAI(model="gemini-2.0-flash",
                              temperature=0,
                              google_api_key=GEMINI_API_KEY)
 llm = LLM(model="gemini/gemini-2.0-flash")
+
+# Set API keys for Eleven Labs and AssemblyAI
+aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY')
+
+# Initialize ElevenLabs client
+client = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
 
 # Conversation history storage
 conversation_history = []
@@ -706,6 +715,53 @@ def clear_history():
     return jsonify({
         "success": True,
         "message": "Conversation history cleared"
+    })
+
+# New route for handling voice input
+@app.route('/api/voice', methods=['POST'])
+def handle_voice():
+    """API endpoint to handle voice input"""
+    print(request.files)
+    if 'file' not in request.files:
+        return jsonify({
+            "success": False,
+            "message": "No file provided"
+        }), 400
+    
+    audio_file = request.files['file']
+    
+    # Transcribe the audio file using AssemblyAI
+    transcriber = aai.Transcriber()
+    transcript = transcriber.transcribe(audio_file)
+    
+    if transcript.status == aai.TranscriptStatus.error:
+        return jsonify({
+            "success": False,
+            "message": "Failed to transcribe audio"
+        }), 500
+    
+    user_message = transcript.text
+    
+    # Process the transcribed text
+    response = process_user_message(user_message)
+    
+    # Convert the response to speech using Eleven Labs       
+    audio = client.text_to_speech.convert(
+    text=response['message'],
+    voice_id="JBFqnCBsd6RMkjVDRZzb",
+    model_id="eleven_multilingual_v2",
+    output_format="mp3_44100_128",
+    )
+
+    
+    # Save the audio to a temporary file
+    with open("tmp.mp3", "wb") as f:
+        for chunk in audio:  # Iterate over the generator
+            f.write(chunk)
+    
+    return jsonify({
+        "success": True,
+        "message": response['message']
     })
 
 if __name__ == "__main__":
