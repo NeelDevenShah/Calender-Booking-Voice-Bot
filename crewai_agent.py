@@ -8,6 +8,7 @@ from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask import Response
 from crewai import Agent, Crew, Task, Process, LLM
 from crewai.tools import tool
 import ast
@@ -21,7 +22,7 @@ load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app, expose_headers=["X-Transcript", "X-Response"])  # Enable CORS for all routes
 
 # API Configuration
 API_BASE_URL = "http://127.0.0.1:5000"
@@ -770,20 +771,21 @@ def handle_voice():
     model_id="eleven_multilingual_v2",
     output_format="mp3_44100_128",
     )
-    print('Audio Conversion completed')
-    
-    # Save the audio to a temporary file
-    with open("tmp.mp3", "wb") as f:
-        for chunk in audio:  # Iterate over the generator
-            f.write(chunk)
-            
-    print('Video saved compleyted')
-    
-    return jsonify({
-        "success": True,
-        "message": response['message'],
-        "audio_url": "tmp.mp3"
-    })
+    # Convert the generator into a byte stream
+    audio_data = b''.join(audio)
+
+    print('Audio processing completed')
+
+    # Return both audio data and text message
+    return Response(
+        audio_data,
+        mimetype="audio/mpeg",
+        headers={
+            "Content-Disposition": "inline; filename=audio.mp3",
+            "X-Transcript": user_message,
+            "X-Response": response['message']
+        }
+    )
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5001, debug=True)

@@ -1,7 +1,7 @@
 pip install numpy==1.24.3
 langchain-google-genai==2.0.11
 langgraph==0.3.8
-flask==3.1.0
+flask==2.0.1
 python-dotenv==1.0.1
 langchain-groq==0.2.5
 flask-cors==5.0.1
@@ -13,3 +13,8 @@ google-auth-oauthlib
 assemblyai
 elevenlabs
 gradio
+flask-socketio==5.1.1
+requests==2.26.0
+python-engineio==4.2.1
+python-socketio==5.4.0
+eventlet==0.33.0
