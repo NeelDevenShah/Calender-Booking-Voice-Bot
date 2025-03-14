@@ -723,10 +723,10 @@ def clear_history():
         "message": "Conversation history cleared"
     })
 
-# New route for handling voice input
-@app.route('/api/voice', methods=['POST'])
-def handle_voice():
-    """API endpoint to handle voice input"""
+# API Routes
+@app.route('/api/transcribe', methods=['POST'])
+def transcribe_voice():
+    """API endpoint to transcribe voice input"""
     print(request.files)
     
     if 'file' not in request.files:
@@ -739,8 +739,6 @@ def handle_voice():
     print("Transcribtion started")
     
     transcript = transcriber.transcribe(audio_file)
-    print("Transcribtion completed")
-    
     
     if transcript.status == aai.TranscriptStatus.error:
         return jsonify({
@@ -748,12 +746,26 @@ def handle_voice():
             "message": "Failed to transcribe audio"
         }), 500
     
-    user_message = transcript.text
+    print("Transcribtion completed")
+
+    return jsonify({
+            "success": True,
+            "user_msg": transcript.text
+        }), 200
+
+# New route for handling voice input
+@app.route('/api/voice', methods=['POST'])
+def handle_voice():
+    """API endpoint to give voice input"""
     
-    # try:
-    #     response = json.loads(response)
-    # except:
-    #     pass
+    data = request.json
+    if not data or 'message' not in data:
+        return jsonify({
+            "success": False,
+            "message": "Message field is required"
+        }), 400
+    
+    user_message = data['message']
     
     # Process the transcribed text
     response = process_user_message(user_message)
@@ -782,10 +794,68 @@ def handle_voice():
         mimetype="audio/mpeg",
         headers={
             "Content-Disposition": "inline; filename=audio.mp3",
-            "X-Transcript": user_message,
             "X-Response": response['message']
         }
     )
+
+# # New route for handling voice input
+# @app.route('/api/voice', methods=['POST'])
+# def handle_voice():
+#     """API endpoint to handle voice input"""
+#     print(request.files)
+    
+#     if 'file' not in request.files:
+#         return jsonify({
+#             "success": False,
+#             "message": "No file provided"
+#         }), 400
+#     audio_file = request.files['file']
+    
+#     print("Transcribtion started")
+    
+#     transcript = transcriber.transcribe(audio_file)
+#     print("Transcribtion completed")
+    
+    
+#     if transcript.status == aai.TranscriptStatus.error:
+#         return jsonify({
+#             "success": False,
+#             "message": "Failed to transcribe audio"
+#         }), 500
+    
+#     user_message = transcript.text
+    
+#     # Process the transcribed text
+#     response = process_user_message(user_message)
+#     print(type(response['message']), response['message'])
+
+#     if ('error' in response['message']) or ('error' in response['message']):
+#         print("@ Found An Error @")
+#         response['message'] = "I'm sorry, I didn't understand your request. Could you please provide more details?"
+    
+#     # Convert the response to speech using Eleven Labs
+#     print('Audio Conversion Started')
+#     audio = client.text_to_speech.convert(
+#     text=response['message'],
+#     voice_id="JBFqnCBsd6RMkjVDRZzb",
+#     model_id="eleven_multilingual_v2",
+#     output_format="mp3_44100_128",
+#     )
+#     # Convert the generator into a byte stream
+#     audio_data = b''.join(audio)
+
+#     print('Audio processing completed')
+
+#     # Return both audio data and text message
+#     return Response(
+#         audio_data,
+#         mimetype="audio/mpeg",
+#         headers={
+#             "Content-Disposition": "inline; filename=audio.mp3",
+#             "X-Transcript": user_message,
+#             "X-Response": response['message']
+#         }
+#     )
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5001, debug=True)

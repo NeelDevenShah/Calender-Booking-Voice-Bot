@@ -602,9 +602,35 @@
         updateStatus("Sending to API...");
 
         try {
+          const response_tr = await fetch(
+            "http://127.0.0.1:5001/api/transcribe",
+            {
+              method: "POST",
+              body: formData,
+            }
+          );
+
+          user_msg = response_tr.body;
+
+          // First get the transcription
+          if (!response_tr.ok) {
+            throw new Error("Failed to transcribe audio");
+          }
+
+          const transcriptionData = await response_tr.json();
+          const userText = transcriptionData.user_msg;
+
+          console.log(userText);
+          if (userText) {
+            addMessage(userText, "user");
+          }
+
           const response = await fetch("http://127.0.0.1:5001/api/voice", {
             method: "POST",
-            body: formData,
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ message: userText }),
           });
 
           if (!response.ok) {
@@ -612,17 +638,13 @@
           }
 
           // Extract text messages from headers
-          const userMessage = response.headers.get("X-Transcript");
+
           const assistantMessage = response.headers.get("X-Response");
 
           console.log("$$$$$$$$$$$$$$$$$$$$$$$$$$");
-          console.log(userMessage);
           console.log(assistantMessage);
           console.log("$$$$$$$$$$$$$$$$$$$$$$$$$$");
           // Add messages to conversation
-          if (userMessage) {
-            addMessage(userMessage, "user");
-          }
 
           if (assistantMessage) {
             addMessage(assistantMessage, "assistant");
