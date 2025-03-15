@@ -238,6 +238,55 @@
         color: var(--light-text);
         font-size: 0.9em;
       }
+
+      /* Calendar slots styling */
+      .slots-container {
+        margin-top: 15px;
+        margin-bottom: 15px;
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        padding: 15px;
+        display: none;
+      }
+
+      .slots-header {
+        font-weight: bold;
+        color: var(--primary);
+        margin-bottom: 10px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 5px;
+      }
+
+      .slot-item {
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 8px;
+        background-color: rgba(74, 134, 232, 0.1);
+        border-left: 3px solid var(--primary);
+      }
+
+      .slot-description {
+        font-weight: bold;
+        margin-bottom: 3px;
+      }
+
+      .slot-time {
+        font-size: 0.9em;
+        color: var(--light-text);
+      }
+
+      .slot-date {
+        font-size: 0.9em;
+        color: var(--light-text);
+      }
+
+      .no-slots-message {
+        font-style: italic;
+        color: var(--light-text);
+        text-align: center;
+        padding: 10px;
+      }
     </style>
   </head>
   <body>
@@ -256,6 +305,12 @@
             Hello! How can I help you today?
           </div>
         </div>
+      </div>
+
+      <!-- Add slots container -->
+      <div id="slots-container" class="slots-container">
+        <div class="slots-header">Calendar Events</div>
+        <div id="slots-content"></div>
       </div>
 
       <div class="visualization-container">
@@ -297,6 +352,8 @@
       const statusElement = document.getElementById("status");
       const calibrateButton = document.getElementById("calibrate-button");
       const conversationElement = document.getElementById("conversation");
+      const slotsContainer = document.getElementById("slots-container");
+      const slotsContent = document.getElementById("slots-content");
 
       // State variables
       let isRecording = false;
@@ -624,7 +681,6 @@
           if (userText) {
             addMessage(userText, "user");
           }
-
           const response = await fetch("http://127.0.0.1:5001/api/voice", {
             method: "POST",
             headers: {
@@ -637,17 +693,86 @@
             throw new Error("Failed to process audio");
           }
 
-          // Extract text messages from headers
+          // Extract the raw header response
+          const assistantResponseHeader = response.headers.get("X-Response");
 
-          const assistantMessage = response.headers.get("X-Response");
+          console.log(
+            "Raw Assistant Response Header:",
+            assistantResponseHeader
+          );
 
-          console.log("$$$$$$$$$$$$$$$$$$$$$$$$$$");
-          console.log(assistantMessage);
-          console.log("$$$$$$$$$$$$$$$$$$$$$$$$$$");
+          let assistantResponse = {};
+
+          try {
+            if (assistantResponseHeader) {
+              // Ensure the string is properly formatted as JSON
+              const formattedResponse = assistantResponseHeader
+                .replace(/'/g, '"') // Replace single quotes with double quotes
+                .replace(/\bTrue\b/g, "true") // Convert Python-style True -> JavaScript true
+                .replace(/\bFalse\b/g, "false"); // Convert Python-style False -> JavaScript false
+
+              console.log("Formatted Response for Parsing:", formattedResponse);
+
+              // Parse the corrected JSON string
+              assistantResponse = JSON.parse(formattedResponse);
+
+              // Check if `message` contains a nested JSON string
+              if (assistantResponse.message) {
+                try {
+                  const nestedJsonMatch = assistantResponse.message.match(
+                    /```json\n([\s\S]*?)\n```/
+                  );
+                  if (nestedJsonMatch) {
+                    assistantResponse.message = JSON.parse(nestedJsonMatch[1]);
+                  }
+                } catch (nestedErr) {
+                  console.error("Error parsing nested JSON:", nestedErr);
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Error parsing assistant response header:", err);
+            assistantResponse = {
+              message: "Sorry, I couldn't process your request properly.",
+              slots: [],
+            };
+          }
+
+          // Extract message and slots
+          let assistantMessage =
+            assistantResponse.message || "No message received.";
+          let assistantSlots = assistantResponse.slots || [];
+
+          // If message is a nested object, extract its fields
+          if (
+            typeof assistantMessage === "object" &&
+            assistantMessage !== null
+          ) {
+            assistantSlots = assistantMessage.slots || [];
+            assistantMessage =
+              assistantMessage.message || "No message received.";
+          }
+
+          // Debugging output
+          console.log("Assistant Message:", assistantMessage);
+          console.log("Assistant Slots:", assistantSlots);
+
           // Add messages to conversation
-
           if (assistantMessage) {
             addMessage(assistantMessage, "assistant");
+          }
+
+          // Handle calendar slots if provided
+          try {
+            if (assistantSlots.length > 0) {
+              displaySlots(assistantSlots);
+            } else {
+              console.warn("No slots received, hiding slots container.");
+              slotsContainer.style.display = "none";
+            }
+          } catch (e) {
+            console.error("Error processing slots:", e);
+            slotsContainer.style.display = "none";
           }
 
           // Convert the response to a blob (since it's an audio file)
@@ -660,6 +785,7 @@
         } catch (error) {
           console.error("Error processing audio:", error);
           updateStatus("Error processing audio");
+          slotsContainer.style.display = "none";
         }
       }
 
@@ -785,7 +911,7 @@
         // Adjust for more sensitivity if needed
         SILENCE_THRESHOLD = mean + stdDev * 0.5; // Less than before (was +stdDev)
         MIN_SPEECH_THRESHOLD = mean + stdDev * 2; // Less than before (was +stdDev*3)
-        SILENCE_DURATION = 0.55; // Make silence detection a bit more patient
+        SILENCE_DURATION = 0.4; // Make silence detection a bit more patient
 
         // Ensure minimum thresholds in case of very quiet environments
         SILENCE_THRESHOLD = Math.max(SILENCE_THRESHOLD, 0.005);
@@ -816,6 +942,74 @@
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
         audio.play().catch((err) => console.error("Error playing audio:", err));
+      }
+
+      // Format date and time to be user-friendly
+      function formatDateTime(isoString) {
+        try {
+          const date = new Date(isoString);
+
+          // Format date: Monday, March 15, 2025
+          const dateOptions = {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          };
+          const formattedDate = date.toLocaleDateString(undefined, dateOptions);
+
+          // Format time: 11:30 AM
+          const timeOptions = {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          };
+          const formattedTime = date.toLocaleTimeString(undefined, timeOptions);
+
+          return { date: formattedDate, time: formattedTime };
+        } catch (e) {
+          console.error("Error formatting date:", e);
+          return { date: "Invalid date", time: "Invalid time" };
+        }
+      }
+
+      // Display calendar slots
+      function displaySlots(slots) {
+        // Clear previous slots
+        slotsContent.innerHTML = "";
+
+        if (!slots || slots.length === 0) {
+          slotsContent.innerHTML = `<div class="no-slots-message">No calendar events found.</div>`;
+          slotsContainer.style.display = "block";
+          return;
+        }
+
+        // Create HTML for each slot
+        slots.forEach((slot) => {
+          const startDateTime = formatDateTime(slot.start);
+          const endDateTime = formatDateTime(slot.end);
+
+          // Create a slot item element
+          const slotElement = document.createElement("div");
+          slotElement.classList.add("slot-item");
+
+          // Same day check
+          const sameDay = startDateTime.date === endDateTime.date;
+
+          // Add content
+          slotElement.innerHTML = `
+            <div class="slot-description">${slot.description || "Slot"}</div>
+            <div class="slot-date">${startDateTime.date}</div>
+            <div class="slot-time">${startDateTime.time} - ${endDateTime.time}${
+            !sameDay ? ` (ends ${endDateTime.date})` : ""
+          }</div>
+          `;
+
+          slotsContent.appendChild(slotElement);
+        });
+
+        // Show the slots container
+        slotsContainer.style.display = "block";
       }
 
       // Initialize when page loads
