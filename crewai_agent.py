@@ -16,6 +16,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from elevenlabs import play
 from elevenlabs.client import ElevenLabs
 import assemblyai as aai
+from typing import Optional
 
 # Load environment variables
 load_dotenv()
@@ -120,11 +121,10 @@ def classify_user_intent(user_input: str) -> Dict[str, Any]:
     prompt = f"""
     You are a calendar assistant. Today's date is {current_date.strftime('%Y-%m-%d')}.
     Identify the user's intent and extract:
-    - "intent" (Make sure the intent is from the given example only) (e.g., "casual_chat", "create_event", "get_events", "check_availability", "update_event", "delete_event", "clarify_user_request")
+    - "intent" (Make sure the intent is from the given example only) (e.g., "casual_chat", "create_event", "get_events", "check_availability", "delete_event", "clarify_user_request")
     - "date_time" (ISO format: YYYY-MM-DDTHH:MM) - Use today's date {current_date.strftime('%Y-%m-%d')} as default if no date is specified
     - "duration" (in minutes, default 60 if unspecified)
     - "description" (Short summary of the event)
-    - "old_date_time" (ISO format: YYYY-MM-DDTHH:MM) - Only for update_event intent
     - "reference_context" (any event or information referenced from previous conversation)
 
     If the user is just chatting (e.g., "Hey, how are you?"), return:
@@ -172,7 +172,7 @@ def classify_user_intent(user_input: str) -> Dict[str, Any]:
         fixed_json["old_date_time"] = parsed_json.get("old_date_time")
     
     # Check for required fields for event creation/updates
-    if fixed_json["intent"] in ["create_event", "update_event"]:
+    if fixed_json["intent"] in ["create_event"]:
         # Date time validation with default of current date if missing
         if not parsed_json.get("date_time") or parsed_json.get("date_time") == "":
             fixed_json["missing_fields"].append("date_time")
@@ -192,7 +192,7 @@ def find_referenced_event() -> Dict:
     for entry in reversed(conversation_history):
         metadata = entry.get("metadata", {})
         # Check if this entry contains event details
-        if "intent" in metadata and metadata["intent"] in ["create_event", "update_event", "get_events"]:
+        if "intent" in metadata and metadata["intent"] in ["create_event", "get_events"]:
             if "event_details" in metadata:
                 return metadata["event_details"]
     return {}
@@ -265,25 +265,37 @@ def get_available_slots_tool(date: str, duration: str) -> Dict:
             return {"success": False, "error": response_data.get("error", "Unknown error")}
     except Exception as e:
         return {"success": False, "error": f"Failed to get available slots: {str(e)}"}
+    
+# @tool('update_event_tool')
+# def update_event_tool(id: str, new_date_time: Optional[str] = None, duration: Optional[str] = None, description: Optional[str] = None, location: Optional[str] = None, attendees: Optional[List[str]] = None) -> Dict:
+#     """Update an existing calendar event with optional details."""
+#     try:
+#         event_data = {"id": id}
 
-@tool('update_event_tool')
-def update_event_tool(old_date_time: str, new_date_time: str, duration: str, description: str) -> Dict:
-    """Update an existing calendar event."""
-    try:
-        event_data = {
-            "old_start_time": old_date_time,
-            "new_start_time": new_date_time,
-            "duration": duration,
-            "description": description
-        }
-        response = requests.put(f"{API_BASE_URL}/update-event", json=event_data)
-        response_data = response.json()
-        if response_data.get("success") == True:
-            return {"success": True, "message": response_data.get("message", "Event updated successfully")}
-        else:
-            return {"success": False, "error": response_data.get("error", "Unknown error")}
-    except Exception as e:
-        return {"success": False, "error": f"Failed to update event: {str(e)}"}
+#         if new_date_time:
+#             event_data["new_start_time"] = new_date_time
+#         if duration:
+#             event_data["duration"] = duration
+#         if description:
+#             event_data["summary"] = description  # Sending description as summary
+#         if location:
+#             event_data["location"] = location
+#         if attendees:
+#             event_data["attendees"] = attendees  # List of emails
+
+#         response = requests.put(f"{API_BASE_URL}/update-event", json=event_data)
+#         response_data = response.json()
+
+#         if response_data.get("success") == True:
+#             return {
+#                 "success": True,
+#                 "message": response_data.get("message", "Event updated successfully"),
+#                 "event_details": response_data.get("event_details", {})
+#             }
+#         else:
+#             return {"success": False, "error": response_data.get("error", "Unknown error")}
+#     except Exception as e:
+#         return {"success": False, "error": f"Failed to update event: {str(e)}"}
 
 @tool('delete_event_tool')
 def delete_event_tool(id: str) -> Dict:
@@ -313,7 +325,8 @@ calendar_agent = Agent(
             {
             "start": "ISO 8601 datetime format",
             "end": "ISO 8601 datetime format",
-            "id": "given id here"
+            "id": "given id here",
+            "description": "if given"
             }
         ]
         }
@@ -322,7 +335,7 @@ calendar_agent = Agent(
     allow_delegation=False,
     llm=llm,
     tools=[create_event_tool, get_events_tool, check_availability_tool, 
-           get_available_slots_tool, update_event_tool, delete_event_tool]
+           get_available_slots_tool, delete_event_tool]
 )
 
 # 📝 Dynamically Create CrewAI Tasks
@@ -392,7 +405,7 @@ def create_calendar_task(user_input):
     missing_fields = parsed_input.get("missing_fields", [])
     
     # Check for missing required fields for create and update intents
-    if (intent == "create_event" or intent == "update_event") and missing_fields:
+    if (intent == "create_event") and missing_fields:
         missing_info = ", ".join(missing_fields)
         response = f"I need more information to {intent.replace('_', ' ')}. Please provide: {missing_info}."
         add_to_history("assistant", response, {"intent": "request_info", "missing_fields": missing_fields})
@@ -421,7 +434,7 @@ def create_calendar_task(user_input):
         )
     
     # Try to resolve references to previous events
-    if reference_context and (intent == "update_event" or intent == "delete_event"):
+    if reference_context and (intent == "delete_event"):
         referenced_event = find_referenced_event()
         if referenced_event:
             # Fill in missing details from the referenced event
@@ -480,7 +493,8 @@ def create_calendar_task(user_input):
                         {
                         "start": "ISO 8601 datetime format",
                         "end": "ISO 8601 datetime format",
-                        "id": "given id here"
+                        "id": "given id here",
+                       "description": "if given"
                         }
                     ]
                     }""",
@@ -516,35 +530,52 @@ def create_calendar_task(user_input):
                 "current_date": current_date.strftime("%Y-%m-%d")
             }]
         )
-    elif intent == "update_event":
-        old_date_time = parsed_input.get("old_date_time", date_time)
-        task = Task(
-            description=f"Update event from {old_date_time} to {date_time} for {duration} minutes",
-            expected_output="Confirmation of event update",
-            agent=calendar_agent,
-            context=[{
-                "description": f"Update a calendar event from {old_date_time} to {date_time}",
-                "expected_output": """Make sure that the output should be in format: {
-                    "message": "Generalized response message",
-                    "success": true,
-                    "slots": [
-                        {
-                        "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format",
-                        "id": given id here,
-                        }
-                    ]
-                    }""",
-                "intent": "update_event",
-                "old_date_time": old_date_time,
-                "new_date_time": date_time,
-                "duration": duration,
-                "description": description,
-                "required_tool": "update_event_tool",
-                "conversation_history": get_conversation_context(),
-                "current_date": current_date.strftime("%Y-%m-%d")
-            }]
-        )
+    # elif intent == "update_event":
+    #     print(parsed_input)
+    #     # print('&&&&&&&&&&&&&&&&')
+    #     # id = parsed_input.get("id")
+        
+    #     # Build context with only available fields
+    #     context_data = {
+    #         "description": f"Update a calendar event based on it's event id, as per the given query by user: {user_input}, so first retrieve details of that event by help of the `get_events_tool` tool, then based on the output, extract the event's id and then update that event based on given user input by help of the `update_event_tool`. ",
+    #         "expected_output": """Make sure that the output should be in format: {
+    #             "message": "Generalized response message",
+    #             "success": true,
+    #             "slots": [
+    #                 {
+    #                 "start": "ISO 8601 datetime format",
+    #                 "end": "ISO 8601 datetime format",
+    #                 "id": given id here
+    #                 }
+    #             ]
+    #             }""",
+    #         "intent": "update_event",
+    #         "required_tool": "get_events_tool, update_event_tool",
+    #         "conversation_history": get_conversation_context(),
+    #         "current_date": current_date.strftime("%Y-%m-%d")
+    #     }
+        
+        # context_data['user_input'] = user_input
+        
+        # # Only add fields that are actually present in parsed_input
+        # if parsed_input.get("new_date_time"):
+        #     context_data["new_date_time"] = parsed_input.get("new_date_time")
+        # if parsed_input.get("duration"):
+        #     context_data["duration"] = parsed_input.get("duration")
+        # if parsed_input.get("description"):
+        #     context_data["summary"] = parsed_input.get("description")  # Sent as summary
+        # if parsed_input.get("location"):
+        #     context_data["location"] = parsed_input.get("location")
+        # if parsed_input.get("attendees"):
+        #     context_data["attendees"] = parsed_input.get("attendees")
+        
+        # task = Task(
+        #     description=f"Update event with ID {id} details, as per the given query by user: {user_input}",
+        #     expected_output="Confirmation of event update",
+        #     agent=calendar_agent,
+        #     context=[context_data]
+        # )
+
     elif intent == "delete_event":
         task = Task(
             description=f"Delete event on {date_time}",
@@ -560,6 +591,7 @@ def create_calendar_task(user_input):
                         "start": "ISO 8601 datetime format",
                         "end": "ISO 8601 datetime format",
                         "id": given id here,
+                        "description": "if given"
                         }
                     ]
                     }""",
@@ -584,8 +616,7 @@ def create_calendar_task(user_input):
                     "slots": [
                         {
                         "start": "ISO 8601 datetime format",
-                        "end": "ISO 8601 datetime format",
-                        "id": given id here,
+                        "end": "ISO 8601 datetime format"
                         }
                     ]
                     }""",

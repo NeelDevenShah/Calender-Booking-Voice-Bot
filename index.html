@@ -411,6 +411,11 @@
 
           // Just initialize the audio context but don't request media stream yet
           updateStatus("Ready to use");
+
+          // Automatically trigger calibration when page loads
+          setTimeout(() => {
+            calibrateButton.click();
+          }, 1000); // Small delay to ensure everything is loaded
         } catch (err) {
           console.error("Error initializing audio:", err);
           updateStatus("Microphone access denied");
@@ -716,14 +721,25 @@
               // Parse the corrected JSON string
               assistantResponse = JSON.parse(formattedResponse);
 
-              // Check if `message` contains a nested JSON string
-              if (assistantResponse.message) {
+              // Step 1: Check if `message` is itself a JSON string
+              if (typeof assistantResponse.message === "string") {
                 try {
-                  const nestedJsonMatch = assistantResponse.message.match(
+                  let innerMessage = assistantResponse.message;
+
+                  // Handle cases where JSON is wrapped in triple backticks (```json ... ```)
+                  const nestedJsonMatch = innerMessage.match(
                     /```json\n([\s\S]*?)\n```/
                   );
                   if (nestedJsonMatch) {
-                    assistantResponse.message = JSON.parse(nestedJsonMatch[1]);
+                    innerMessage = nestedJsonMatch[1];
+                  }
+
+                  // Step 2: Check if it's a valid JSON string and parse it
+                  if (
+                    innerMessage.startsWith("{") &&
+                    innerMessage.endsWith("}")
+                  ) {
+                    assistantResponse.message = JSON.parse(innerMessage);
                   }
                 } catch (nestedErr) {
                   console.error("Error parsing nested JSON:", nestedErr);

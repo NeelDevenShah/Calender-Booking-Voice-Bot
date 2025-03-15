@@ -12,6 +12,7 @@ import pytz
 # from datetime import datetime
 import datetime
 from dateutil.parser import parse
+import json
 
 app = Flask(__name__)
 
@@ -68,12 +69,58 @@ def is_within_working_hours(start_time, end_time):
     
     return True, "Within working hours"
 
-# Check availability in Google Calendar
+# Check specific availability in Google Calendar
+@app.route('/check-specific-availability', methods=['GET'])
+def check_specific_availability():
+    try:
+        # Extract parameters from query string
+        start_time_str = request.args.get('datetime')  # Example: "2025-03-15T10:00:00"
+        duration_str = request.args.get('duration')  # Example: "60"
+
+        if not start_time_str or not duration_str:
+            return jsonify({"success": False, "error": "Missing datetime or duration in the request"}), 400
+
+        # Convert duration to integer
+        try:
+            duration = int(duration_str)
+        except ValueError:
+            return jsonify({"success": False, "error": "Invalid duration format"}), 400
+
+        # Convert datetime string to object
+        start_time = datetime.datetime.fromisoformat(start_time_str)
+        end_time = start_time + datetime.timedelta(minutes=duration)
+
+        # Convert to timezone-aware timestamps
+        timezone = pytz.timezone(TIMEZONE)
+        start_time = start_time if start_time.tzinfo else timezone.localize(start_time)
+        end_time = end_time if end_time.tzinfo else timezone.localize(end_time)
+
+        service = get_calendar_service()
+
+        # Check for conflicts
+        events_result = service.events().list(
+            calendarId='primary',
+            timeMin=start_time.isoformat(),
+            timeMax=end_time.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+
+        events = events_result.get('items', [])
+        if events:
+            return jsonify({"success": True, "available": False, "reason": "Time slot conflicts with an existing event"})
+
+        return jsonify({"success": True, "available": True, "reason": "Time slot is available"})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Error checking availability: {str(e)}"}), 500
+
 def check_availability(start_time, end_time):
-    # First check if the proposed time is within working hours
-    within_hours, reason = is_within_working_hours(start_time, end_time)
-    if not within_hours:
-        return False, reason
+    
+    # # First check if the proposed time is within working hours
+    # within_hours, reason = is_within_working_hours(start_time, end_time)
+    # if not within_hours:
+    #     return False, reason
     
     service = get_calendar_service()
 
@@ -314,50 +361,74 @@ def get_events_by_datetime():
 def update_event():
     data = request.json
     try:
+        # Check if ID exists (required parameter)
+        if 'id' not in data:
+            return jsonify({"success": False, "error": "Event ID is required"})
+            
         id = data['id']
-        new_start_time = datetime.datetime.fromisoformat(data['new_start_time'])
-        new_end_time = new_start_time + datetime.timedelta(minutes=int(data['duration']))
-        
-        # Convert to the correct timezone
-        tz = pytz.timezone(TIMEZONE)
-        new_start_time = tz.localize(new_start_time)
-        new_end_time = tz.localize(new_end_time)
-
-        # Check if the new time is within working hours
-        within_hours, reason = is_within_working_hours(new_start_time, new_end_time)
-        if not within_hours:
-            return jsonify({"success": False, "error": reason})
-
         service = get_calendar_service()
-
+        
         # Get the current event details
         event = service.events().get(calendarId='primary', eventId=id).execute()
+        
+        # Handle time updates if provided
+        if 'new_start_time' in data:
+            new_start_time = datetime.datetime.fromisoformat(data['new_start_time'])
+            
+            # Get duration (either from request or calculate from current event)
+            if 'duration' in data:
+                duration = int(data['duration'])
+            else:
+                # Calculate from existing event
+                current_start = parser.parse(event['start'].get('dateTime'))
+                current_end = parser.parse(event['end'].get('dateTime'))
+                duration = int((current_end - current_start).total_seconds() / 60)
+                
+            new_end_time = new_start_time + datetime.timedelta(minutes=duration)
+            
+            # Convert to the correct timezone
+            tz = pytz.timezone(TIMEZONE)
+            new_start_time = tz.localize(new_start_time) if new_start_time.tzinfo is None else new_start_time
+            new_end_time = tz.localize(new_end_time) if new_end_time.tzinfo is None else new_end_time
 
-        # Check if the new time slot is available before updating
-        is_available, reason = check_availability(new_start_time, new_end_time)
-        if not is_available:
-            return jsonify({"success": False, "error": reason})
+            # Check if the new time is within working hours
+            within_hours, reason = is_within_working_hours(new_start_time.isoformat(), new_end_time.isoformat())
+            if not within_hours:
+                return jsonify({"success": False, "error": reason})
+                
+            # Update the event with new times
+            event['start'] = {
+                'dateTime': new_start_time.isoformat(),
+                'timeZone': TIMEZONE,
+            }
+            event['end'] = {
+                'dateTime': new_end_time.isoformat(),
+                'timeZone': TIMEZONE,
+            }
 
-        # Update the event with new times
-        event['start'] = {
-            'dateTime': new_start_time.isoformat(),
-            'timeZone': TIMEZONE,
-        }
-        event['end'] = {
-            'dateTime': new_end_time.isoformat(),
-            'timeZone': TIMEZONE,
-        }
-
-        if 'description' in data:
-            event['description'] = data['description']
-            event['summary'] = data['description']
+        if 'summary' in data:
+            event['summary'] = data['summary']
+ 
+        # Update location if provided
+        if 'location' in data:
+            event['location'] = data['location']
+            
+        # Update attendees if provided
+        if 'attendees' in data:
+            event['attendees'] = [{'email': email} for email in data['attendees']]
 
         updated_event = service.events().update(calendarId='primary', eventId=id, body=event).execute()
 
         return jsonify({
             "success": True,
             "message": "Event updated successfully",
-            "id": updated_event['id']
+            "id": updated_event['id'],
+            "event_details": {
+                "summary": updated_event.get('summary', 'No title'),
+                "start": updated_event['start'].get('dateTime', updated_event['start'].get('date')),
+                "end": updated_event['end'].get('dateTime', updated_event['end'].get('date')),
+                "summary": updated_event.get('summary', '')
+            }
         })
 
     except Exception as e:
