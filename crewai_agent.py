@@ -812,12 +812,12 @@ def handle_voice():
     # Convert the response to speech using Eleven Labs
     print('Audio Conversion Started')
     audio = ''
-    # audio = client.text_to_speech.convert(
-    # text=response['message'],
-    # voice_id="JBFqnCBsd6RMkjVDRZzb",
-    # model_id="eleven_multilingual_v2",
-    # output_format="mp3_44100_128",
-    # )
+    audio = client.text_to_speech.convert(
+    text=response['message'],
+    voice_id="JBFqnCBsd6RMkjVDRZzb",
+    model_id="eleven_multilingual_v2",
+    output_format="mp3_44100_128",
+    )
     # Convert the generator into a byte stream
     
     audio_data = b''.join(audio)
