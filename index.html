@@ -341,7 +341,7 @@
       const SAMPLE_RATE = 44100;
       const CHANNELS = 1;
       let SILENCE_THRESHOLD = 0.01;
-      let SILENCE_DURATION = 0.4; // seconds
+      let SILENCE_DURATION = 0.7; // seconds
       let MIN_SPEECH_THRESHOLD = 0.02;
       let MIN_AUDIO_DURATION = 0.15; // seconds
       const DEBUG = true; // Enable debug logging
@@ -430,12 +430,149 @@
         debugLog(`Status: ${message}`);
       }
 
+      async function processRecognizedText(userText) {
+        try {
+          const response = await fetch("http://127.0.0.1:5001/api/voice", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ message: userText }),
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to process text");
+          }
+
+          // Extract the raw header response
+          const assistantResponseHeader = response.headers.get("X-Response");
+
+          console.log(
+            "Raw Assistant Response Header:",
+            assistantResponseHeader
+          );
+
+          let assistantResponse = {};
+
+          try {
+            if (assistantResponseHeader) {
+              // Ensure the string is properly formatted as JSON
+              const formattedResponse = assistantResponseHeader
+                .replace(/'/g, '"') // Replace single quotes with double quotes
+                .replace(/\bTrue\b/g, "true") // Convert Python-style True -> JavaScript true
+                .replace(/\bFalse\b/g, "false"); // Convert Python-style False -> JavaScript false
+
+              console.log("Formatted Response for Parsing:", formattedResponse);
+
+              // Parse the corrected JSON string
+              assistantResponse = JSON.parse(formattedResponse);
+
+              // Step 1: Check if `message` is itself a JSON string
+              if (typeof assistantResponse.message === "string") {
+                try {
+                  let innerMessage = assistantResponse.message;
+
+                  // Handle cases where JSON is wrapped in triple backticks (```json ... ```)
+                  const nestedJsonMatch = innerMessage.match(
+                    /```json\n([\s\S]*?)\n```/
+                  );
+                  if (nestedJsonMatch) {
+                    innerMessage = nestedJsonMatch[1];
+                  }
+
+                  // Step 2: Check if it's a valid JSON string and parse it
+                  if (
+                    innerMessage.startsWith("{") &&
+                    innerMessage.endsWith("}")
+                  ) {
+                    assistantResponse.message = JSON.parse(innerMessage);
+                  }
+                } catch (nestedErr) {
+                  console.error("Error parsing nested JSON:", nestedErr);
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Error parsing assistant response header:", err);
+            assistantResponse = {
+              message: "Sorry, I couldn't process your request properly.",
+              slots: [],
+            };
+          }
+
+          // Extract message and slots
+          let assistantMessage =
+            assistantResponse.message || "No message received.";
+          let assistantSlots = assistantResponse.slots || [];
+
+          // If message is a nested object, extract its fields
+          if (
+            typeof assistantMessage === "object" &&
+            assistantMessage !== null
+          ) {
+            assistantSlots = assistantMessage.slots || [];
+            assistantMessage =
+              assistantMessage.message || "No message received.";
+          }
+
+          // Debugging output
+          console.log("Assistant Message:", assistantMessage);
+          console.log("Assistant Slots:", assistantSlots);
+
+          // Add messages to conversation
+          if (assistantMessage) {
+            addMessage(assistantMessage, "assistant");
+          }
+
+          // Handle calendar slots if provided
+          try {
+            if (assistantSlots.length > 0) {
+              displaySlots(assistantSlots);
+            } else {
+              console.warn("No slots received, hiding slots container.");
+              slotsContainer.style.display = "none";
+            }
+          } catch (e) {
+            console.error("Error processing slots:", e);
+            slotsContainer.style.display = "none";
+          }
+
+          // Convert the response to a blob (since it's an audio file)
+          const audioBlob = await response.blob();
+
+          // Play the generated speech audio
+          playAudio(audioBlob);
+
+          updateStatus("Ready");
+        } catch (error) {
+          console.error("Error processing recognized text:", error);
+          updateStatus("Error processing your request");
+          addMessage(
+            "Sorry, I couldn't process your request. Please try again.",
+            "assistant"
+          );
+          slotsContainer.style.display = "none";
+
+          // Set status back to ready after a delay
+          setTimeout(() => {
+            updateStatus("Ready");
+          }, 3000);
+        }
+      }
+
       // Handle microphone button click
       async function toggleRecording() {
         if (!isRecording) {
-          startRecording();
+          processAudio(); // Use the new Web Speech API implementation
         } else {
-          stopRecording();
+          // If already recording, just stop it
+          // The Web Speech API handles its own cleanup
+          const recognition = new (window.SpeechRecognition ||
+            window.webkitSpeechRecognition)();
+          recognition.abort();
+          resetUI();
+          updateStatus("Recording stopped");
+          setTimeout(() => updateStatus("Ready"), 1000);
         }
       }
 
@@ -927,7 +1064,7 @@
         // Adjust for more sensitivity if needed
         SILENCE_THRESHOLD = mean + stdDev * 0.5; // Less than before (was +stdDev)
         MIN_SPEECH_THRESHOLD = mean + stdDev * 2; // Less than before (was +stdDev*3)
-        SILENCE_DURATION = 0.4; // Make silence detection a bit more patient
+        SILENCE_DURATION = 0.7; // Make silence detection a bit more patient
 
         // Ensure minimum thresholds in case of very quiet environments
         SILENCE_THRESHOLD = Math.max(SILENCE_THRESHOLD, 0.005);

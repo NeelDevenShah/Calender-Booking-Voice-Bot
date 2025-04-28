@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Speech Recognition Demo</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        margin-top: 50px;
+      }
+      #result {
+        margin-top: 20px;
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+      }
+      button {
+        font-size: 18px;
+        padding: 10px 20px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Speech Recognition in Chrome</h1>
+    <button id="startBtn">Start Listening</button>
+    <p id="result">Your speech will appear here...</p>
+
+    <script>
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        alert(
+          "Your browser does not support Speech Recognition. Please use Google Chrome."
+        );
+      } else {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = "en-US";
+
+        document.getElementById("startBtn").addEventListener("click", () => {
+          document.getElementById("result").innerText = "Listening...";
+          recognition.start();
+        });
+
+        recognition.onresult = (event) => {
+          const transcript = event.results[0][0].transcript;
+          document.getElementById("result").innerText =
+            "You said: " + transcript;
+        };
+
+        recognition.onerror = (event) => {
+          document.getElementById("result").innerText = "Error: " + event.error;
+        };
+
+        recognition.onend = () => {
+          console.log("Speech recognition stopped.");
+        };
+      }
+    </script>
+  </body>
+</html>
